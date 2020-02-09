@@ -18,6 +18,7 @@ impl RccExt for RCC {
                 pclk1: None,
                 pclk2: None,
                 sysclk: None,
+                pll48clk: false
             },
         }
     }
@@ -36,6 +37,7 @@ pub struct CFGR {
     pclk1: Option<u32>,
     pclk2: Option<u32>,
     sysclk: Option<u32>,
+    pll48clk: bool
 }
 
 impl CFGR {
@@ -81,6 +83,11 @@ impl CFGR {
         self
     }
 
+    pub fn require_pll48clk(mut self) -> Self {
+        self.pll48clk = true;
+        self
+    }
+
     fn pll_setup(&self) -> (bool, u32)
     {
         let rcc = unsafe { &*RCC::ptr() };
@@ -113,6 +120,21 @@ impl CFGR {
 
         let pllp = (sysclk_div / 2) - 1;
 
+        let pllq = if self.pll48clk {
+            let pllq_div = (vco_in * plln) / 48_000_000;
+
+            // PLLQ must be between 2 and 15
+            assert!(pllq_div >= 2 && pllq_div <= 15);
+
+            // Calculate real PLLQ frequency
+            let pllq = vco_in * plln / pllq_div;
+            assert_eq!(pllq, 48_000_000);
+
+            pllq_div
+        } else {
+            4 // default value
+        };
+
         // Calculate real system clock
         let sysclk = vco_in * plln / sysclk_div;
 
@@ -125,6 +147,8 @@ impl CFGR {
                     .bits(plln as u16)
                     .pllp()
                     .bits(pllp as u8)
+                    .pllq()
+                    .bits(pllq as u8)
                     .pllsrc()
                     .bit(self.hse.is_some())
             });
